@@ -1,9 +1,11 @@
+
+"""
 # Hydrogen Bond Plotting Script
 
 This script reads hydrogen bond data from `.xvg` files, generates individual plots for each genotype's hydrogen bonds, and creates a combined plot comparing the hydrogen bonds across multiple genotypes.
 
 ## Code
-
+"""
 ```python
 import matplotlib.pyplot as plt
 import numpy as np
@@ -114,3 +116,7 @@ if __name__ == "__main__":
         print(f"{label}: {all_averages[i]:.2f}")
     
     print("\nAll hydrogen bond plots generated successfully!")
+
+-----
+**Author**: Hariprasad T
+-----
