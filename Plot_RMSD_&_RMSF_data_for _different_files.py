@@ -1,3 +1,4 @@
+```
 # Genotype Plotting Script
 
 This script reads `.xvg` files and generates both individual and combined plots for RMSD and RMSF data of multiple genotypes using `matplotlib`.
@@ -115,10 +116,8 @@ if __name__ == "__main__":
 
 ---
 
-**License**: MIT  
-**Author**: Your Name
+ 
+**Author**: Hariprasad T
 
 ---
 
-## Example Plots
-You can attach example plots to the `README.md` to help visualize output.
