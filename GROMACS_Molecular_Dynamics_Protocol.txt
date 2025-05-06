@@ -1,0 +1,224 @@
+# GROMACS Molecular Dynamics Protocol
+
+This repository contains a comprehensive protocol for running molecular dynamics simulations using GROMACS. The protocol is designed for protein simulations, starting from a PDB structure through topology generation, solvation, energy minimization, equilibration, production MD, and analysis.
+
+## Overview
+
+The workflow includes the following steps:
+1. Topology generation
+2. System preparation (solvation and ion addition)
+3. Energy minimization
+4. Equilibration (NVT and NPT)
+5. Production MD simulation
+6. Analysis of trajectory
+
+## Requirements
+
+- GROMACS (tested with version 2020 or newer)
+- Initial PDB structure (the protocol uses 5f1x.pdb as an example)
+- Parameter files (.mdp) for each simulation stage
+
+## Protocol
+
+### 1. Generate Topology Files
+
+```bash
+# Convert PDB file to GROMACS format and generate topology files
+# When prompted, select the AMBER force field (option 1) and TIP3P water model (option 1)
+gmx pdb2gmx -f 5f1x.pdb -o 5f1x_processed.gro
+```
+
+### 2. System Solvation
+
+```bash
+# Define simulation box - dodecahedron with 1.2 nm between protein and box edge
+gmx editconf -f 5f1x_processed.gro -o 5f1x_newbox.gro -c -d 1.2 -bt dodecahedron
+
+# Fill the box with water molecules
+gmx solvate -cp 5f1x_newbox.gro -cs spc216.gro -o 5f1x_solv.gro -p topol.top
+```
+
+### 3. Adding Ions
+
+```bash
+# Prepare file for ion addition
+gmx grompp -f ions.mdp -c 5f1x_solv.gro -p topol.top -o ions.tpr
+
+# Add ions to neutralize the system
+# When prompted, select "SOL" (option 13) to replace water molecules with ions
+gmx genion -s ions.tpr -o 5f1x_solv_ions.gro -p topol.top -pname NA -nname CL -neutral
+```
+
+### 4. Energy Minimization
+
+```bash
+# Prepare for energy minimization
+gmx grompp -f minim.mdp -c 5f1x_solv_ions.gro -p topol.top -o em.tpr
+
+# Run energy minimization
+gmx mdrun -v -deffnm em
+
+# Extract potential energy information
+# Select "Potential" (option 10) and "0" to end selection
+gmx energy -f em.edr -o potential.xvg
+```
+
+### 5. Equilibration Phase 1: NVT (Constant Volume and Temperature)
+
+```bash
+# Prepare NVT equilibration
+gmx grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr
+
+# Run NVT equilibration
+gmx mdrun -deffnm nvt
+
+# Extract temperature information
+# Select "Temperature" (option 16) and "0" to end selection
+gmx energy -f nvt.edr -o temperature.xvg
+```
+
+### 6. Equilibration Phase 2: NPT (Constant Pressure and Temperature)
+
+```bash
+# Prepare NPT equilibration
+gmx grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr
+
+# Run NPT equilibration
+gmx mdrun -deffnm npt
+
+# Extract pressure information
+# Select "Pressure" (option 18) and "0" to end selection
+gmx energy -f npt.edr -o pressure.xvg
+
+# Extract density information
+# Select "Density" (option 24) and "0" to end selection
+gmx energy -f npt.edr -o density.xvg
+```
+
+### 7. Production MD Simulation
+
+```bash
+# Prepare first 50 ns of production MD
+gmx grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md_0_50.tpr
+
+# Run first 50 ns of production MD
+gmx mdrun -deffnm md_0_50
+
+# Extend the simulation for another 50 ns (total 100 ns)
+gmx convert-tpr -s md_0_50.tpr -o md_50_100.tpr -extend 50000
+
+# Run second part of production MD using checkpoint from first part
+# Note: Using CPU for non-bonded calculations and not appending to previous output
+gmx mdrun -deffnm md_50_100 -cpi md_0_50.cpt -nb cpu -noappend
+
+#This command is used to resume a previously interrupted MD simulation from the last checkpoint.
+#Note:When to Use This:
+#You simulated 50 ns to 100 ns.
+#The simulation got interrupted before reaching 100 ns.
+#You want to resume exactly from where it left off, without restarting from 50 ns.
+gmx mdrun -deffnm md_50_100 -cpi md_50_100.cpt -nb cpu -noappend
+```
+
+### 8. Trajectory Analysis
+
+```bash
+# Concatenate trajectory files from both parts of the simulation
+gmx trjcat -f md_0_50.xtc md_50_100.xtc -o md_0_100.xtc
+
+# Process trajectory for visualization - first stage
+# When prompted, select "Protein" (1) for centering and "System" (0) for output
+gmx trjconv -s md_0_50.tpr -f md_0_100.xtc -o md_0_100_nopbc.xtc -pbc mol -ur compact -center
+
+# Create a trajectory with the protein fitted to itself
+# When prompted, select "Backbone" (4) for fitting and "Protein" (1) for output
+gmx trjconv -s md_0_50.tpr -f md_0_100_nopbc.xtc -o md_0_100_fit.xtc -fit rot+trans
+
+# Extract protein structure for analysis
+# When prompted, select "Protein" (1) for both centering and output
+gmx trjconv -s md_0_50.tpr -f npt.gro -o protein.gro -pbc mol -ur compact -center
+
+# Create topology file containing only protein
+# When prompted, select "Protein" (1)
+gmx convert-tpr -s md_0_50.tpr -o protein.tpr
+
+# Calculate RMSD
+# When prompted, select "Backbone" (4) for both reference and least-squares fit
+gmx rms -s protein.tpr -f md_0_100_fit.xtc -tu ns -o rmsd.xvg
+
+# Calculate RMSF per residue
+# When prompted, select "C-alpha" (3)
+gmx rmsf -s protein.tpr -f md_0_100_fit.xtc -res -o rmsf.xvg
+
+# Analyze all hydrogen bonds
+# When prompted, select "Protein" (1) twice
+gmx hbond -s protein.tpr -f md_0_100_fit.xtc -tu ns -num hb_all.xvg
+
+# Analyze backbone hydrogen bonds
+# When prompted, select "Backbone" (7) twice
+gmx hbond -s protein.tpr -f md_0_100_fit.xtc -tu ns -num hb_bb.xvg
+
+# Secondary structure analysis
+# When prompted, select "Protein" (7)
+gmx dssp -s protein.tpr -f md_0_100_fit.xtc -o dssp.dat -tu ns -hmode dssp -num num.xvg
+
+# Statistical analysis of secondary structure elements
+gmx analyze -f num.xvg
+
+# Principal Component Analysis (PCA)
+# When prompted, select "Backbone" (4) for both covariance calculation and analysis
+gmx covar -s protein.tpr -f md_0_100_fit.xtc -o eigenval.xvg -v eigenvec.trr -av average.pdb -mwa
+
+# Analyze and project trajectory on eigenvectors
+gmx anaeig -v eigenvec.trr -f md_0_100_fit.xtc -s protein.tpr -proj proj.xvg -2d 2dproj.xvg -extr extreme.pdb -filt filtered.xtc -first 1 -last 2
+
+# Calculate RMSD compared to crystal structure
+# When prompted, select "Backbone" (4) twice
+gmx rms -s em.tpr -f md_0_50.xtc -o rmsd_xtal.xvg -tu ns
+
+# Calculate radius of gyration
+# When prompted, select "Protein" (1)
+gmx gyrate -s md_0_50.tpr -f md_0_50.xtc -o gyrate.xvg
+```
+
+## Parameter Files
+
+This protocol requires the following .mdp parameter files that need to be prepared separately:
+
+- `ions.mdp`: Parameters for ion addition
+- `minim.mdp`: Parameters for energy minimization
+- `nvt.mdp`: Parameters for NVT equilibration
+- `npt.mdp`: Parameters for NPT equilibration
+- `md.mdp`: Parameters for production MD
+
+Example parameter files can be found in the GROMACS documentation or in the `mdp_files` folder of this repository.
+
+## Analysis and Visualization
+
+The protocol generates several output files for analysis:
+
+- `potential.xvg`: Energy minimization convergence
+- `temperature.xvg`: Temperature stability during NVT
+- `pressure.xvg` and `density.xvg`: System stability during NPT
+- `rmsd.xvg`: Root Mean Square Deviation of protein backbone
+- `rmsf.xvg`: Root Mean Square Fluctuation per residue
+- `hb_all.xvg` and `hb_bb.xvg`: Hydrogen bond analysis
+- `dssp.dat` and `num.xvg`: Secondary structure analysis
+- `eigenval.xvg` and related files: Principal Component Analysis results
+- `rmsd_xtal.xvg`: RMSD comparison to starting structure
+- `gyrate.xvg`: Radius of gyration analysis
+
+These files can be visualized using tools like Grace, XMGRACE, or Python with matplotlib.
+
+## Tips for Running
+
+- Each step should be executed in sequence
+- Check for errors in the GROMACS output after each step
+- Adjust the protocol parameters according to your specific system
+- For production runs, consider using GPU acceleration if available
+
+#References
+
+Lemkul, J.A., 2024. Introductory tutorials for simulating protein dynamics with GROMACS. The Journal of Physical Chemistry B, 128(39), pp.9418-9435.
+
+
+For questions or issues, please open an issue on this repository.
