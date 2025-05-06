@@ -1,4 +1,4 @@
-# GROMACS Molecular Dynamics Protocol
+# GROMACS Molecular Dynamics Protocol(Protein in water)
 
 This repository contains a comprehensive protocol for running molecular dynamics simulations using GROMACS. The protocol is designed for protein simulations, starting from a PDB structure through topology generation, solvation, energy minimization, equilibration, production MD, and analysis.
 
